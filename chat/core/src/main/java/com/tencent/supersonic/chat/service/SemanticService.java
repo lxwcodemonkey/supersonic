@@ -12,7 +12,7 @@ import static com.tencent.supersonic.common.pojo.Constants.TIME_FORMAT;
 import static com.tencent.supersonic.common.pojo.Constants.WEEK;
 
 import com.tencent.supersonic.auth.api.authentication.pojo.User;
-import com.tencent.supersonic.chat.api.component.SemanticInterpreter;
+import com.tencent.supersonic.chat.api.component.SemanticLayer;
 import com.tencent.supersonic.chat.api.pojo.ModelSchema;
 import com.tencent.supersonic.chat.api.pojo.SchemaElement;
 import com.tencent.supersonic.chat.api.pojo.SemanticParseInfo;
@@ -26,9 +26,9 @@ import com.tencent.supersonic.chat.api.pojo.response.ChatConfigResp;
 import com.tencent.supersonic.chat.api.pojo.response.ChatConfigRichResp;
 import com.tencent.supersonic.chat.api.pojo.response.ChatDefaultRichConfigResp;
 import com.tencent.supersonic.chat.api.pojo.response.DataInfo;
+import com.tencent.supersonic.chat.api.pojo.response.ModelInfo;
 import com.tencent.supersonic.chat.api.pojo.response.EntityInfo;
 import com.tencent.supersonic.chat.api.pojo.response.MetricInfo;
-import com.tencent.supersonic.chat.api.pojo.response.ModelInfo;
 import com.tencent.supersonic.chat.config.AggregatorConfig;
 import com.tencent.supersonic.chat.utils.ComponentFactory;
 import com.tencent.supersonic.chat.utils.QueryReqBuilder;
@@ -51,7 +51,6 @@ import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -63,7 +62,6 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -80,7 +78,7 @@ public class SemanticService {
     @Autowired
     private AggregatorConfig aggregatorConfig;
 
-    private SemanticInterpreter semanticInterpreter = ComponentFactory.getSemanticLayer();
+    private SemanticLayer semanticLayer = ComponentFactory.getSemanticLayer();
 
     public ModelSchema getModelSchema(Long id) {
         ModelSchema modelSchema = schemaService.getModelSchema(id);
@@ -115,12 +113,15 @@ public class SemanticService {
                         }
                     }
                 }
-                try {
-                    setMainModel(entityInfo, parseInfo.getModelId(),
-                            modelInfoId, user);
-                    return entityInfo;
-                } catch (Exception e) {
-                    log.error("setMainModel error {}", e);
+                if (!"".equals(modelInfoId)) {
+                    try {
+                        setMainModel(entityInfo, parseInfo.getModelId(),
+                                modelInfoId, user);
+
+                        return entityInfo;
+                    } catch (Exception e) {
+                        log.error("setMainModel error {}", e);
+                    }
                 }
             }
         }
@@ -151,7 +152,6 @@ public class SemanticService {
             modelInfo.setWords(modelSchema.getModel().getAlias());
             modelInfo.setBizName(modelSchema.getModel().getBizName());
             if (Objects.nonNull(modelSchema.getEntity())) {
-                modelInfo.setPrimaryEntityName(modelSchema.getEntity().getName());
                 modelInfo.setPrimaryEntityBizName(modelSchema.getEntity().getBizName());
             }
 
@@ -190,40 +190,9 @@ public class SemanticService {
     }
 
     public void setMainModel(EntityInfo modelInfo, Long model, String entity, User user) {
-        if (StringUtils.isEmpty(entity)) {
-            return;
-        }
-
-        List<String> entities = Collections.singletonList(entity);
-
-        QueryResultWithSchemaResp queryResultWithColumns = getQueryResultWithSchemaResp(modelInfo, model, entities,
-                user);
-
-        if (queryResultWithColumns != null) {
-            if (!CollectionUtils.isEmpty(queryResultWithColumns.getResultList())
-                    && queryResultWithColumns.getResultList().size() > 0) {
-                Map<String, Object> result = queryResultWithColumns.getResultList().get(0);
-                for (Map.Entry<String, Object> entry : result.entrySet()) {
-                    String entryKey = getEntryKey(entry);
-                    if (entry.getValue() == null || entryKey == null) {
-                        continue;
-                    }
-                    modelInfo.getDimensions().stream().filter(i -> entryKey.equals(i.getBizName()))
-                            .forEach(i -> i.setValue(entry.getValue().toString()));
-                    modelInfo.getMetrics().stream().filter(i -> entryKey.equals(i.getBizName()))
-                            .forEach(i -> i.setValue(entry.getValue().toString()));
-                }
-            }
-        }
-    }
-
-    public QueryResultWithSchemaResp getQueryResultWithSchemaResp(EntityInfo modelInfo, Long model,
-            List<String> entities, User user) {
-        if (CollectionUtils.isEmpty(entities)) {
-            return null;
-        }
         ModelSchema modelSchema = schemaService.getModelSchema(model);
-        modelInfo.setEntityId(entities.get(0));
+
+        modelInfo.setEntityId(entity);
         SemanticParseInfo semanticParseInfo = new SemanticParseInfo();
         semanticParseInfo.setModel(modelSchema.getModel());
         semanticParseInfo.setNativeQuery(true);
@@ -248,32 +217,38 @@ public class SemanticService {
         semanticParseInfo.setDateInfo(dateInfo);
 
         // add filter
-        QueryFilter chatFilter = getQueryFilter(modelInfo, entities);
+        QueryFilter chatFilter = new QueryFilter();
+        chatFilter.setValue(String.valueOf(entity));
+        chatFilter.setOperator(FilterOperatorEnum.EQUALS);
+        chatFilter.setBizName(getEntityPrimaryName(modelInfo));
         Set<QueryFilter> chatFilters = new LinkedHashSet();
         chatFilters.add(chatFilter);
         semanticParseInfo.setDimensionFilters(chatFilters);
 
         QueryResultWithSchemaResp queryResultWithColumns = null;
         try {
-            queryResultWithColumns = semanticInterpreter.queryByStruct(
-                    QueryReqBuilder.buildStructReq(semanticParseInfo), user);
+            queryResultWithColumns = semanticLayer.queryByStruct(QueryReqBuilder.buildStructReq(semanticParseInfo),
+                    user);
         } catch (Exception e) {
             log.warn("setMainModel queryByStruct error, e:", e);
         }
-        return queryResultWithColumns;
-    }
 
-    private QueryFilter getQueryFilter(EntityInfo modelInfo, List<String> entities) {
-        QueryFilter chatFilter = new QueryFilter();
-        if (entities.size() == 1) {
-            chatFilter.setValue(entities.get(0));
-            chatFilter.setOperator(FilterOperatorEnum.EQUALS);
-        } else {
-            chatFilter.setValue(entities);
-            chatFilter.setOperator(FilterOperatorEnum.IN);
+        if (queryResultWithColumns != null) {
+            if (!CollectionUtils.isEmpty(queryResultWithColumns.getResultList())
+                    && queryResultWithColumns.getResultList().size() > 0) {
+                Map<String, Object> result = queryResultWithColumns.getResultList().get(0);
+                for (Map.Entry<String, Object> entry : result.entrySet()) {
+                    String entryKey = getEntryKey(entry);
+                    if (entry.getValue() == null || entryKey == null) {
+                        continue;
+                    }
+                    modelInfo.getDimensions().stream().filter(i -> entryKey.equals(i.getBizName()))
+                            .forEach(i -> i.setValue(entry.getValue().toString()));
+                    modelInfo.getMetrics().stream().filter(i -> entryKey.equals(i.getBizName()))
+                            .forEach(i -> i.setValue(entry.getValue().toString()));
+                }
+            }
         }
-        chatFilter.setBizName(getEntityPrimaryName(modelInfo));
-        return chatFilter;
     }
 
     private Set<SchemaElement> getDimensions(EntityInfo modelInfo) {
@@ -357,7 +332,7 @@ public class SemanticService {
     }
 
     public AggregateInfo getAggregateInfo(User user, SemanticParseInfo semanticParseInfo,
-            QueryResultWithSchemaResp result) {
+                                          QueryResultWithSchemaResp result) {
         if (CollectionUtils.isEmpty(semanticParseInfo.getMetrics()) || !aggregatorConfig.getEnableRatio()) {
             return new AggregateInfo();
         }
@@ -409,7 +384,7 @@ public class SemanticService {
     }
 
     private MetricInfo queryRatio(User user, SemanticParseInfo semanticParseInfo, SchemaElement metric,
-            AggOperatorEnum aggOperatorEnum, QueryResultWithSchemaResp results) {
+                                  AggOperatorEnum aggOperatorEnum, QueryResultWithSchemaResp results) {
         MetricInfo metricInfo = new MetricInfo();
         metricInfo.setStatistics(new HashMap<>());
         QueryStructReq queryStructReq = QueryReqBuilder.buildStructRatioReq(semanticParseInfo, metric, aggOperatorEnum);
@@ -418,7 +393,7 @@ public class SemanticService {
 
         queryStructReq.setGroups(new ArrayList<>(Arrays.asList(dateField)));
         queryStructReq.setDateInfo(getRatioDateConf(aggOperatorEnum, semanticParseInfo, results));
-        QueryResultWithSchemaResp queryResp = semanticInterpreter.queryByStruct(queryStructReq, user);
+        QueryResultWithSchemaResp queryResp = semanticLayer.queryByStruct(queryStructReq, user);
         if (Objects.nonNull(queryResp) && !CollectionUtils.isEmpty(queryResp.getResultList())) {
 
             Map<String, Object> result = queryResp.getResultList().get(0);
@@ -457,7 +432,7 @@ public class SemanticService {
     }
 
     private DateConf getRatioDateConf(AggOperatorEnum aggOperatorEnum, SemanticParseInfo semanticParseInfo,
-            QueryResultWithSchemaResp results) {
+                                      QueryResultWithSchemaResp results) {
         String dateField = QueryReqBuilder.getDateField(semanticParseInfo.getDateInfo());
         Optional<String> lastDayOp = results.getResultList().stream()
                 .map(r -> r.get(dateField).toString())

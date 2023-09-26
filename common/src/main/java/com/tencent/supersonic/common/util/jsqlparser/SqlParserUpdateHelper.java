@@ -5,11 +5,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
-import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.Function;
 import net.sf.jsqlparser.expression.LongValue;
-import net.sf.jsqlparser.expression.Parenthesis;
 import net.sf.jsqlparser.expression.StringValue;
 import net.sf.jsqlparser.expression.operators.conditional.AndExpression;
 import net.sf.jsqlparser.expression.operators.conditional.OrExpression;
@@ -17,8 +15,6 @@ import net.sf.jsqlparser.expression.operators.conditional.XorExpression;
 import net.sf.jsqlparser.expression.operators.relational.ComparisonOperator;
 import net.sf.jsqlparser.expression.operators.relational.EqualsTo;
 import net.sf.jsqlparser.expression.operators.relational.ExpressionList;
-import net.sf.jsqlparser.expression.operators.relational.InExpression;
-import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.schema.Table;
 import net.sf.jsqlparser.statement.select.GroupByElement;
@@ -40,11 +36,6 @@ import org.springframework.util.CollectionUtils;
 public class SqlParserUpdateHelper {
 
     public static String replaceValue(String sql, Map<String, Map<String, String>> filedNameToValueMap) {
-        return replaceValue(sql, filedNameToValueMap, true);
-    }
-
-    public static String replaceValue(String sql, Map<String, Map<String, String>> filedNameToValueMap,
-            boolean exactReplace) {
         Select selectStatement = SqlParserSelectHelper.getSelect(sql);
         SelectBody selectBody = selectStatement.getSelectBody();
         if (!(selectBody instanceof PlainSelect)) {
@@ -52,7 +43,7 @@ public class SqlParserUpdateHelper {
         }
         PlainSelect plainSelect = (PlainSelect) selectBody;
         Expression where = plainSelect.getWhere();
-        FieldlValueReplaceVisitor visitor = new FieldlValueReplaceVisitor(exactReplace, filedNameToValueMap);
+        FieldlValueReplaceVisitor visitor = new FieldlValueReplaceVisitor(filedNameToValueMap);
         if (Objects.nonNull(where)) {
             where.accept(visitor);
         }
@@ -74,11 +65,11 @@ public class SqlParserUpdateHelper {
         return selectStatement.toString();
     }
 
-    public static String replaceFields(String sql, Map<String, String> fieldNameMap) {
-        return replaceFields(sql, fieldNameMap, false);
+    public static String replaceFields(String sql, Map<String, String> fieldToBizName) {
+        return replaceFields(sql, fieldToBizName, false);
     }
 
-    public static String replaceFields(String sql, Map<String, String> fieldNameMap, boolean exactReplace) {
+    public static String replaceFields(String sql, Map<String, String> fieldToBizName, boolean exactReplace) {
         Select selectStatement = SqlParserSelectHelper.getSelect(sql);
         SelectBody selectBody = selectStatement.getSelectBody();
         if (!(selectBody instanceof PlainSelect)) {
@@ -87,7 +78,7 @@ public class SqlParserUpdateHelper {
         PlainSelect plainSelect = (PlainSelect) selectBody;
         //1. replace where fields
         Expression where = plainSelect.getWhere();
-        FieldReplaceVisitor visitor = new FieldReplaceVisitor(fieldNameMap, exactReplace);
+        FieldReplaceVisitor visitor = new FieldReplaceVisitor(fieldToBizName, exactReplace);
         if (Objects.nonNull(where)) {
             where.accept(visitor);
         }
@@ -101,14 +92,14 @@ public class SqlParserUpdateHelper {
         List<OrderByElement> orderByElements = plainSelect.getOrderByElements();
         if (!CollectionUtils.isEmpty(orderByElements)) {
             for (OrderByElement orderByElement : orderByElements) {
-                orderByElement.accept(new OrderByReplaceVisitor(fieldNameMap, exactReplace));
+                orderByElement.accept(new OrderByReplaceVisitor(fieldToBizName, exactReplace));
             }
         }
 
         //4. replace group by fields
         GroupByElement groupByElement = plainSelect.getGroupBy();
         if (Objects.nonNull(groupByElement)) {
-            groupByElement.accept(new GroupByReplaceVisitor(fieldNameMap, exactReplace));
+            groupByElement.accept(new GroupByReplaceVisitor(fieldToBizName, exactReplace));
         }
         //5. replace having fields
         Expression having = plainSelect.getHaving();
@@ -388,10 +379,17 @@ public class SqlParserUpdateHelper {
             AndExpression andExpression = (AndExpression) whereExpression;
             Expression leftExpression = andExpression.getLeftExpression();
             Expression rightExpression = andExpression.getRightExpression();
-            modifyWhereExpression(leftExpression, fieldNameToAggregate);
-            modifyWhereExpression(rightExpression, fieldNameToAggregate);
-        } else if (whereExpression instanceof Parenthesis) {
-            modifyWhereExpression(((Parenthesis) whereExpression).getExpression(), fieldNameToAggregate);
+            if (isLogicExpression(leftExpression)) {
+                modifyWhereExpression(leftExpression, fieldNameToAggregate);
+            } else {
+                setAggToFunction(leftExpression, fieldNameToAggregate);
+            }
+            if (isLogicExpression(rightExpression)) {
+                modifyWhereExpression(rightExpression, fieldNameToAggregate);
+            } else {
+                setAggToFunction(rightExpression, fieldNameToAggregate);
+            }
+            setAggToFunction(rightExpression, fieldNameToAggregate);
         } else {
             setAggToFunction(whereExpression, fieldNameToAggregate);
         }
@@ -470,114 +468,8 @@ public class SqlParserUpdateHelper {
         List<Expression> waitingForAdds = visitor.getWaitingForAdds();
         if (!CollectionUtils.isEmpty(waitingForAdds)) {
             for (Expression waitingForAdd : waitingForAdds) {
-                Expression having = plainSelect.getHaving();
-                if (Objects.isNull(having)) {
-                    plainSelect.setHaving(waitingForAdd);
-                } else {
-                    plainSelect.setHaving(new AndExpression(having, waitingForAdd));
-                }
+                plainSelect.setHaving(waitingForAdd);
             }
-        }
-        return selectStatement.toString();
-    }
-
-    public static String removeWhereCondition(String sql, Set<String> removeFieldNames) {
-        Select selectStatement = SqlParserSelectHelper.getSelect(sql);
-        SelectBody selectBody = selectStatement.getSelectBody();
-
-        if (!(selectBody instanceof PlainSelect)) {
-            return sql;
-        }
-        selectBody.accept(new SelectVisitorAdapter() {
-            @Override
-            public void visit(PlainSelect plainSelect) {
-                removeWhereCondition(plainSelect.getWhere(), removeFieldNames);
-            }
-        });
-        return selectStatement.toString();
-    }
-
-    private static void removeWhereCondition(Expression whereExpression, Set<String> removeFieldNames) {
-        if (whereExpression == null) {
-            return;
-        }
-        removeWhereExpression(whereExpression, removeFieldNames);
-    }
-
-    private static void removeWhereExpression(Expression whereExpression, Set<String> removeFieldNames) {
-        if (isLogicExpression(whereExpression)) {
-            AndExpression andExpression = (AndExpression) whereExpression;
-            Expression leftExpression = andExpression.getLeftExpression();
-            Expression rightExpression = andExpression.getRightExpression();
-
-            removeWhereExpression(leftExpression, removeFieldNames);
-            removeWhereExpression(rightExpression, removeFieldNames);
-        } else if (whereExpression instanceof Parenthesis) {
-            removeWhereExpression(((Parenthesis) whereExpression).getExpression(), removeFieldNames);
-        } else {
-            removeExpressionWithConstant(whereExpression, removeFieldNames);
-        }
-    }
-
-    private static void removeExpressionWithConstant(Expression expression, Set<String> removeFieldNames) {
-        if (expression instanceof EqualsTo) {
-            ComparisonOperator comparisonOperator = (ComparisonOperator) expression;
-            String columnName = getColumnName(comparisonOperator.getLeftExpression(),
-                    comparisonOperator.getRightExpression());
-            if (!removeFieldNames.contains(columnName)) {
-                return;
-            }
-            try {
-                ComparisonOperator constantExpression = (ComparisonOperator) CCJSqlParserUtil.parseCondExpression(
-                        JsqlConstants.EQUAL_CONSTANT);
-                comparisonOperator.setLeftExpression(constantExpression.getLeftExpression());
-                comparisonOperator.setRightExpression(constantExpression.getRightExpression());
-                comparisonOperator.setASTNode(constantExpression.getASTNode());
-            } catch (JSQLParserException e) {
-                log.error("JSQLParserException", e);
-            }
-        }
-        if (expression instanceof InExpression) {
-            InExpression inExpression = (InExpression) expression;
-            String columnName = getColumnName(inExpression.getLeftExpression(), inExpression.getRightExpression());
-            if (!removeFieldNames.contains(columnName)) {
-                return;
-            }
-            try {
-                InExpression constantExpression = (InExpression) CCJSqlParserUtil.parseCondExpression(
-                        JsqlConstants.IN_CONSTANT);
-                inExpression.setLeftExpression(constantExpression.getLeftExpression());
-                inExpression.setRightItemsList(constantExpression.getRightItemsList());
-                inExpression.setASTNode(constantExpression.getASTNode());
-            } catch (JSQLParserException e) {
-                log.error("JSQLParserException", e);
-            }
-        }
-    }
-
-    private static String getColumnName(Expression leftExpression, Expression rightExpression) {
-        String columnName = "";
-        if (leftExpression instanceof Column) {
-            columnName = ((Column) leftExpression).getColumnName();
-        }
-        if (rightExpression instanceof Column) {
-            columnName = ((Column) rightExpression).getColumnName();
-        }
-        return columnName;
-    }
-
-    public static String addParenthesisToWhere(String sql) {
-        Select selectStatement = SqlParserSelectHelper.getSelect(sql);
-        SelectBody selectBody = selectStatement.getSelectBody();
-
-        if (!(selectBody instanceof PlainSelect)) {
-            return sql;
-        }
-        PlainSelect plainSelect = (PlainSelect) selectBody;
-        Expression where = plainSelect.getWhere();
-        if (Objects.nonNull(where)) {
-            Parenthesis parenthesis = new Parenthesis(where);
-            plainSelect.setWhere(parenthesis);
         }
         return selectStatement.toString();
     }

@@ -1,12 +1,16 @@
 package com.tencent.supersonic.chat.corrector;
 
 import com.tencent.supersonic.chat.api.pojo.SemanticCorrectInfo;
+import com.tencent.supersonic.chat.api.pojo.SemanticSchema;
 import com.tencent.supersonic.chat.parser.llm.dsl.DSLParseResult;
 import com.tencent.supersonic.chat.query.llm.dsl.LLMReq;
 import com.tencent.supersonic.chat.query.llm.dsl.LLMReq.ElementValue;
 import com.tencent.supersonic.common.pojo.Constants;
+import com.tencent.supersonic.common.pojo.enums.AggregateTypeEnum;
+import com.tencent.supersonic.common.util.ContextUtils;
 import com.tencent.supersonic.common.util.JsonUtil;
 import com.tencent.supersonic.common.util.jsqlparser.SqlParserUpdateHelper;
+import com.tencent.supersonic.knowledge.service.SchemaService;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -27,9 +31,32 @@ public class GlobalBeforeCorrector extends BaseSemanticCorrector {
 
         updateFieldNameByLinkingValue(semanticCorrectInfo);
 
-        updateFieldValueByLinkingValue(semanticCorrectInfo);
+        updateFieldNameByBizName(semanticCorrectInfo);
 
-        correctFieldName(semanticCorrectInfo);
+        addAggregateToMetric(semanticCorrectInfo);
+    }
+
+    private void addAggregateToMetric(SemanticCorrectInfo semanticCorrectInfo) {
+        //add aggregate to all metric
+        String sql = semanticCorrectInfo.getSql();
+        Long modelId = semanticCorrectInfo.getParseInfo().getModel().getModel();
+
+        SemanticSchema semanticSchema = ContextUtils.getBean(SchemaService.class).getSemanticSchema();
+
+        Map<String, String> metricToAggregate = semanticSchema.getMetrics(modelId).stream()
+                .map(schemaElement -> {
+                    if (Objects.isNull(schemaElement.getDefaultAgg())) {
+                        schemaElement.setDefaultAgg(AggregateTypeEnum.SUM.name());
+                    }
+                    return schemaElement;
+                }).collect(Collectors.toMap(a -> a.getBizName(), a -> a.getDefaultAgg(), (k1, k2) -> k1));
+
+        if (CollectionUtils.isEmpty(metricToAggregate)) {
+            return;
+        }
+
+        String aggregateSql = SqlParserUpdateHelper.addAggregateToField(sql, metricToAggregate);
+        semanticCorrectInfo.setSql(aggregateSql);
     }
 
     private void replaceAlias(SemanticCorrectInfo semanticCorrectInfo) {
@@ -37,17 +64,27 @@ public class GlobalBeforeCorrector extends BaseSemanticCorrector {
         semanticCorrectInfo.setSql(replaceAlias);
     }
 
-    private void correctFieldName(SemanticCorrectInfo semanticCorrectInfo) {
+    private void updateFieldNameByBizName(SemanticCorrectInfo semanticCorrectInfo) {
 
-        Map<String, String> fieldNameMap = getFieldNameMap(semanticCorrectInfo.getParseInfo().getModelId());
+        Map<String, String> fieldToBizName = getFieldToBizName(semanticCorrectInfo.getParseInfo().getModelId());
 
-        String sql = SqlParserUpdateHelper.replaceFields(semanticCorrectInfo.getSql(), fieldNameMap);
+        String sql = SqlParserUpdateHelper.replaceFields(semanticCorrectInfo.getSql(), fieldToBizName);
 
         semanticCorrectInfo.setSql(sql);
     }
 
     private void updateFieldNameByLinkingValue(SemanticCorrectInfo semanticCorrectInfo) {
-        List<ElementValue> linking = getLinkingValues(semanticCorrectInfo);
+        Object context = semanticCorrectInfo.getParseInfo().getProperties().get(Constants.CONTEXT);
+        if (Objects.isNull(context)) {
+            return;
+        }
+
+        DSLParseResult dslParseResult = JsonUtil.toObject(JsonUtil.toString(context), DSLParseResult.class);
+        if (Objects.isNull(dslParseResult) || Objects.isNull(dslParseResult.getLlmReq())) {
+            return;
+        }
+        LLMReq llmReq = dslParseResult.getLlmReq();
+        List<ElementValue> linking = llmReq.getLinking();
         if (CollectionUtils.isEmpty(linking)) {
             return;
         }
@@ -58,39 +95,6 @@ public class GlobalBeforeCorrector extends BaseSemanticCorrector {
 
         String sql = SqlParserUpdateHelper.replaceFieldNameByValue(semanticCorrectInfo.getSql(),
                 fieldValueToFieldNames);
-        semanticCorrectInfo.setSql(sql);
-    }
-
-    private List<ElementValue> getLinkingValues(SemanticCorrectInfo semanticCorrectInfo) {
-        Object context = semanticCorrectInfo.getParseInfo().getProperties().get(Constants.CONTEXT);
-        if (Objects.isNull(context)) {
-            return null;
-        }
-
-        DSLParseResult dslParseResult = JsonUtil.toObject(JsonUtil.toString(context), DSLParseResult.class);
-        if (Objects.isNull(dslParseResult) || Objects.isNull(dslParseResult.getLlmReq())) {
-            return null;
-        }
-        LLMReq llmReq = dslParseResult.getLlmReq();
-        return llmReq.getLinking();
-    }
-
-
-    private void updateFieldValueByLinkingValue(SemanticCorrectInfo semanticCorrectInfo) {
-        List<ElementValue> linking = getLinkingValues(semanticCorrectInfo);
-        if (CollectionUtils.isEmpty(linking)) {
-            return;
-        }
-
-        Map<String, Map<String, String>> filedNameToValueMap = linking.stream().collect(
-                Collectors.groupingBy(ElementValue::getFieldName,
-                        Collectors.mapping(ElementValue::getFieldValue, Collectors.toMap(
-                                oldValue -> oldValue,
-                                newValue -> newValue,
-                                (existingValue, newValue) -> newValue)
-                        )));
-
-        String sql = SqlParserUpdateHelper.replaceValue(semanticCorrectInfo.getSql(), filedNameToValueMap, false);
         semanticCorrectInfo.setSql(sql);
     }
 }
