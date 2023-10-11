@@ -8,14 +8,14 @@
 
 ## Motivation
 
-The emergence of Large Language Model (LLM) like ChatGPT is reshaping the way information is retrieved. In the field of data analytics, both academia and industry are primarily focused on leveraging LLM to convert natural language into SQL (so called text2sql or nl2sql). While some works show promising results, they are still not applicable to real-world scenarios.
+The emergence of Large Language Model (LLM) like ChatGPT is reshaping the way information is retrieved. In the field of data analytics, both academia and industry are primarily focused on leveraging LLM to convert natural language into SQL (so called text2sql or nl2sql). While some works exhibit promising results, their **reliability** is inadequate for real-world applications.  
 
 From our perspective, the key to filling the real-world gap lies in three aspects: 
 1. Introduce a semantic layer encapsulating underlying data context(joins, formulas, etc) to reduce **complexity**.
-2. Augment semantic parsing with schema mappers(as a kind of preprocessor) and semantic correctors(as a kind of postprocessor) to improve **accuracy** and **stability**.
-3. Complement the LLM-based semantic parser with rule-based semantic parsers to improve **efficiency**(in terms of latency and cost).
+2. Augment the LLM with schema mappers(as a kind of preprocessor) and semantic correctors(as a kind of postprocessor) to mitigate **hallucination**.
+3. Utilize heuristic rules when necessary to improve **efficiency**(in terms of latency and cost).
 
-With these ideas in mind, we develop SuperSonic as a practical reference implementation and use it to power our real-world products. Additionally, to facilitate further development of data chatbot, we decide to open source SuperSonic as an extensible framework.
+With these ideas in mind, we develop SuperSonic as a practical reference implementation and use it to power our real-world products. Additionally, to facilitate further development of ChatBI, we decide to open source SuperSonic as an extensible framework.
 
 ## Out-of-the-box Features
 
@@ -40,7 +40,7 @@ The high-level architecture and main process flow is as follows:
 
 - **Semantic Corrector:** checks validity of extracted semantic information and performs correction and optimization if needed.
 
-- **Semantic Layer:** performs execution according to extracted semantic information. It generates SQL queries and executes them against physical data models.
+- **Semantic Interpreter:** performs execution according to extracted semantic information. It generates SQL statements and executes them against physical data models.
 
 - **Chat Plugin:** extends functionality with third-party tools. The LLM is going to select the most suitable one, given all configured plugins with function description and sample questions.
 
@@ -58,6 +58,6 @@ Please refer to project [wiki](https://github.com/tencentmusic/supersonic/wiki).
 
 ## WeChat Contact
 
-Please join the chat group to suggest feedbacks or ideas:
+Please follow SuperSonic wechat official account:
 
-<img src="./docs/images/wechat_contact.jpeg" height="40%" width="40%" align="center"/> 
+<img src="./docs/images/supersonic_wechat_oa.png" height="50%" width="50%" align="center"/> 

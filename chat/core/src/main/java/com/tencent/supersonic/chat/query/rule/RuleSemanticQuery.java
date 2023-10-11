@@ -2,7 +2,7 @@
 package com.tencent.supersonic.chat.query.rule;
 
 import com.tencent.supersonic.auth.api.authentication.pojo.User;
-import com.tencent.supersonic.chat.api.component.SemanticLayer;
+import com.tencent.supersonic.chat.api.component.SemanticInterpreter;
 import com.tencent.supersonic.chat.api.component.SemanticQuery;
 import com.tencent.supersonic.chat.api.pojo.ChatContext;
 import com.tencent.supersonic.chat.api.pojo.ModelSchema;
@@ -12,7 +12,6 @@ import com.tencent.supersonic.chat.api.pojo.SchemaElementMatch;
 import com.tencent.supersonic.chat.api.pojo.SchemaElementType;
 import com.tencent.supersonic.chat.api.pojo.SemanticParseInfo;
 import com.tencent.supersonic.chat.api.pojo.request.QueryFilter;
-import com.tencent.supersonic.chat.api.pojo.response.EntityInfo;
 import com.tencent.supersonic.chat.api.pojo.response.QueryResult;
 import com.tencent.supersonic.chat.api.pojo.response.QueryState;
 import com.tencent.supersonic.chat.query.QueryManager;
@@ -45,7 +44,7 @@ public abstract class RuleSemanticQuery implements SemanticQuery, Serializable {
 
     protected SemanticParseInfo parseInfo = new SemanticParseInfo();
     protected QueryMatcher queryMatcher = new QueryMatcher();
-    protected SemanticLayer semanticLayer = ComponentFactory.getSemanticLayer();
+    protected SemanticInterpreter semanticInterpreter = ComponentFactory.getSemanticLayer();
 
     public RuleSemanticQuery() {
         QueryManager.register(this);
@@ -196,7 +195,7 @@ public abstract class RuleSemanticQuery implements SemanticQuery, Serializable {
         }
 
         QueryResult queryResult = new QueryResult();
-        QueryResultWithSchemaResp queryResp = semanticLayer.queryByStruct(convertQueryStruct(), user);
+        QueryResultWithSchemaResp queryResp = semanticInterpreter.queryByStruct(convertQueryStruct(), user);
 
         if (queryResp != null) {
             queryResult.setQueryAuthorization(queryResp.getQueryAuthorization());
@@ -211,10 +210,6 @@ public abstract class RuleSemanticQuery implements SemanticQuery, Serializable {
         queryResult.setQueryMode(queryMode);
         queryResult.setQueryState(QueryState.SUCCESS);
 
-        // add Model info
-        EntityInfo entityInfo = ContextUtils.getBean(SemanticService.class)
-                .getEntityInfo(parseInfo, user);
-        queryResult.setEntityInfo(entityInfo);
         return queryResult;
     }
 
@@ -227,7 +222,7 @@ public abstract class RuleSemanticQuery implements SemanticQuery, Serializable {
                     .queryTypeEnum(QueryTypeEnum.STRUCT)
                     .queryReq(convertQueryStruct())
                     .build();
-            return semanticLayer.explain(explainSqlReq, user);
+            return semanticInterpreter.explain(explainSqlReq, user);
         } catch (Exception e) {
             log.error("explain error explainSqlReq:{}", explainSqlReq, e);
         }
@@ -246,7 +241,7 @@ public abstract class RuleSemanticQuery implements SemanticQuery, Serializable {
 
         QueryResult queryResult = new QueryResult();
         QueryMultiStructReq queryMultiStructReq = convertQueryMultiStruct();
-        QueryResultWithSchemaResp queryResp = semanticLayer.queryByMultiStruct(queryMultiStructReq, user);
+        QueryResultWithSchemaResp queryResp = semanticInterpreter.queryByMultiStruct(queryMultiStructReq, user);
         if (queryResp != null) {
             queryResult.setQueryAuthorization(queryResp.getQueryAuthorization());
         }
@@ -260,10 +255,6 @@ public abstract class RuleSemanticQuery implements SemanticQuery, Serializable {
         queryResult.setQueryMode(queryMode);
         queryResult.setQueryState(QueryState.SUCCESS);
 
-        // add Model info
-        EntityInfo entityInfo = ContextUtils.getBean(SemanticService.class)
-                .getEntityInfo(parseInfo, user);
-        queryResult.setEntityInfo(entityInfo);
         return queryResult;
     }
 
