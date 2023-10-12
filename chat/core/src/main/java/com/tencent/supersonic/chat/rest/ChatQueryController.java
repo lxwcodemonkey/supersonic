@@ -1,6 +1,6 @@
 package com.tencent.supersonic.chat.rest;
 
-
+import com.tencent.supersonic.auth.api.authentication.pojo.User;
 import com.tencent.supersonic.auth.api.authentication.utils.UserHolder;
 import com.tencent.supersonic.chat.api.pojo.request.DimensionValueReq;
 import com.tencent.supersonic.chat.api.pojo.request.ExecuteQueryReq;
@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -83,4 +84,11 @@ public class ChatQueryController {
         return queryService.queryDimensionValue(dimensionValueReq, UserHolder.findUser(request, response));
     }
 
+    @RequestMapping("/getEntityInfo")
+    public Object getEntityInfo(@RequestParam("queryId") Long queryId,
+                                @RequestParam("parseId") Integer parseId,
+                                HttpServletRequest request, HttpServletResponse response) {
+        User user = UserHolder.findUser(request, response);
+        return queryService.getEntityInfo(queryId, parseId, user);
+    }
 }

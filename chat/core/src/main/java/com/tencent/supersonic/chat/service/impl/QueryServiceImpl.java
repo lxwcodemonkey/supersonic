@@ -15,6 +15,7 @@ import com.tencent.supersonic.chat.api.pojo.request.QueryDataReq;
 import com.tencent.supersonic.chat.api.pojo.request.QueryFilter;
 import com.tencent.supersonic.chat.api.pojo.request.QueryReq;
 import com.tencent.supersonic.chat.api.pojo.request.SolvedQueryReq;
+import com.tencent.supersonic.chat.api.pojo.response.EntityInfo;
 import com.tencent.supersonic.chat.api.pojo.response.ParseResp;
 import com.tencent.supersonic.chat.api.pojo.response.QueryResult;
 import com.tencent.supersonic.chat.api.pojo.response.QueryState;
@@ -31,12 +32,14 @@ import com.tencent.supersonic.chat.responder.execute.ExecuteResponder;
 import com.tencent.supersonic.chat.responder.parse.ParseResponder;
 import com.tencent.supersonic.chat.service.ChatService;
 import com.tencent.supersonic.chat.service.QueryService;
+import com.tencent.supersonic.chat.service.SemanticService;
 import com.tencent.supersonic.chat.service.StatisticsService;
 import com.tencent.supersonic.chat.utils.ComponentFactory;
 import com.tencent.supersonic.chat.utils.SolvedQueryManager;
 import com.tencent.supersonic.common.pojo.Constants;
 import com.tencent.supersonic.common.pojo.DateConf;
 import com.tencent.supersonic.common.pojo.QueryColumn;
+import com.tencent.supersonic.common.util.ContextUtils;
 import com.tencent.supersonic.common.util.JsonUtil;
 import com.tencent.supersonic.common.util.jsqlparser.FilterExpression;
 import com.tencent.supersonic.common.util.jsqlparser.SqlParserSelectHelper;
@@ -124,6 +127,7 @@ public class QueryServiceImpl implements QueryService {
 
             List<SemanticParseInfo> selectedParses = convertParseInfo(selectedQueries);
             List<SemanticParseInfo> candidateParses = convertParseInfo(queryCtx.getCandidateQueries());
+            candidateParses = getTop5CandidateParseInfo(selectedParses, candidateParses);
             parseResult = ParseResp.builder()
                     .chatId(queryReq.getChatId())
                     .queryText(queryReq.getQueryText())
@@ -152,6 +156,21 @@ public class QueryServiceImpl implements QueryService {
                 .map(SemanticQuery::getParseInfo)
                 .sorted(Comparator.comparingDouble(SemanticParseInfo::getScore).reversed())
                 .collect(Collectors.toList());
+    }
+
+    private List<SemanticParseInfo> getTop5CandidateParseInfo(List<SemanticParseInfo> selectedParses,
+                                                             List<SemanticParseInfo> candidateParses) {
+        if (CollectionUtils.isEmpty(selectedParses) || CollectionUtils.isEmpty(candidateParses)) {
+            return candidateParses;
+        }
+        SemanticParseInfo semanticParseInfo = selectedParses.get(0);
+        Long modelId = semanticParseInfo.getModelId();
+        if (modelId == null || modelId <= 0) {
+            return candidateParses;
+        }
+        candidateParses = candidateParses.stream().filter(candidateParse ->
+                        !modelId.equals(candidateParse.getModelId())).collect(Collectors.toList());
+        return candidateParses.size() > 5 ? candidateParses.subList(0, 5) : candidateParses;
     }
 
     @Override
@@ -311,6 +330,14 @@ public class QueryServiceImpl implements QueryService {
         return queryResult;
     }
 
+    @Override
+    public EntityInfo getEntityInfo(Long queryId, Integer parseId, User user) {
+        ChatParseDO chatParseDO = chatService.getParseInfo(queryId, user.getName(), parseId);
+        SemanticParseInfo parseInfo = JsonUtil.toObject(chatParseDO.getParseInfo(), SemanticParseInfo.class);
+        SemanticService semanticService = ContextUtils.getBean(SemanticService.class);
+        return semanticService.getEntityInfo(parseInfo, user);
+    }
+
     private void updateDateInfo(QueryDataReq queryData, SemanticParseInfo parseInfo,
             Map<String, Map<String, String>> filedNameToValueMap, List<FilterExpression> filterExpressionList) {
         if (Objects.isNull(queryData.getDateInfo())) {
@@ -419,6 +446,8 @@ public class QueryServiceImpl implements QueryService {
         QueryResultWithSchemaResp queryResultWithSchemaResp = semanticInterpreter.queryByStruct(queryStructReq, user);
         return queryResultWithSchemaResp;
     }
+
+
 
     public Object queryHanlpDimensionValue(DimensionValueReq dimensionValueReq, User user) throws Exception {
         QueryResultWithSchemaResp queryResultWithSchemaResp = new QueryResultWithSchemaResp();
