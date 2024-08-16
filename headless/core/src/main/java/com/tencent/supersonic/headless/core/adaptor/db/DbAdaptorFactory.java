@@ -13,8 +13,8 @@ public class DbAdaptorFactory {
     static {
         dbAdaptorMap = new HashMap<>();
         dbAdaptorMap.put(EngineType.CLICKHOUSE.getName(), new ClickHouseAdaptor());
-        dbAdaptorMap.put(EngineType.MYSQL.getName(), new MysqlAdaptor());
-        dbAdaptorMap.put(EngineType.H2.getName(), new H2Adaptor());
+        dbAdaptorMap.put(EngineType.MYSQL.getName(), new DefaultDbAdaptor());
+        dbAdaptorMap.put(EngineType.H2.getName(), new DefaultDbAdaptor());
         dbAdaptorMap.put(EngineType.POSTGRESQL.getName(), new PostgresqlAdaptor());
         dbAdaptorMap.put(EngineType.OTHER.getName(), new DefaultDbAdaptor());
     }

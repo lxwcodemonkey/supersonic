@@ -10,8 +10,6 @@ import java.util.List;
  */
 public interface DbAdaptor {
 
-    String getDateFormat(String dateType, String dateFormat, String column);
-
     String functionNameCorrector(String sql);
 
     List<String> getDBs(ConnectInfo connectInfo) throws SQLException;

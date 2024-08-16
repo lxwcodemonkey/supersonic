@@ -2,8 +2,6 @@ package com.tencent.supersonic.headless.core.adaptor.db;
 
 import com.google.common.collect.Lists;
 import com.tencent.supersonic.common.jsqlparser.SqlReplaceHelper;
-import com.tencent.supersonic.common.pojo.Constants;
-import com.tencent.supersonic.common.pojo.enums.TimeDimensionEnum;
 import com.tencent.supersonic.headless.api.pojo.DBColumn;
 import com.tencent.supersonic.headless.core.pojo.ConnectInfo;
 import lombok.extern.slf4j.Slf4j;
@@ -20,29 +18,7 @@ import java.util.Objects;
 import java.util.function.UnaryOperator;
 
 @Slf4j
-public class PostgresqlAdaptor extends BaseDbAdaptor {
-
-    @Override
-    public String getDateFormat(String dateType, String dateFormat, String column) {
-        if (dateFormat.equalsIgnoreCase(Constants.DAY_FORMAT_INT)) {
-            if (TimeDimensionEnum.MONTH.name().equalsIgnoreCase(dateType)) {
-                return "formatDateTime(toDate(parseDateTimeBestEffort(toString(%s))),'%Y-%m')".replace("%s", column);
-            } else if (TimeDimensionEnum.WEEK.name().equalsIgnoreCase(dateType)) {
-                return "toMonday(toDate(parseDateTimeBestEffort(toString(%s))))".replace("%s", column);
-            } else {
-                return "toDate(parseDateTimeBestEffort(toString(%s)))".replace("%s", column);
-            }
-        } else if (dateFormat.equalsIgnoreCase(Constants.DAY_FORMAT)) {
-            if (TimeDimensionEnum.MONTH.name().equalsIgnoreCase(dateType)) {
-                return "formatDateTime(toDate(%s),'%Y-%m')".replace("%s", column);
-            } else if (TimeDimensionEnum.WEEK.name().equalsIgnoreCase(dateType)) {
-                return "toMonday(toDate(%s))".replace("%s", column);
-            } else {
-                return column;
-            }
-        }
-        return column;
-    }
+public class PostgresqlAdaptor extends DefaultDbAdaptor {
 
     @Override
     public String functionNameCorrector(String sql) {

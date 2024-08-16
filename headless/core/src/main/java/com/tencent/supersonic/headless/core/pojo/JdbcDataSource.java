@@ -1,6 +1,5 @@
 package com.tencent.supersonic.headless.core.pojo;
 
-import com.alibaba.druid.filter.Filter;
 import com.alibaba.druid.pool.DruidDataSource;
 import com.alibaba.druid.wall.WallConfig;
 import com.alibaba.druid.wall.WallFilter;
@@ -13,14 +12,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Component;
-import java.util.Arrays;
+
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import static com.tencent.supersonic.common.pojo.Constants.STATISTIC;
 
 @Slf4j
 @Component
@@ -284,10 +282,10 @@ public class JdbcDataSource {
             druidDataSource.setConnectProperties(properties);
 
             try {
-                // statistic and ck source don't need wall filter
-                if (!STATISTIC.equals(name) && !DataType.CLICKHOUSE.getFeature().equalsIgnoreCase(type)) {
-                    druidDataSource.setProxyFilters(Arrays.asList(new Filter[]{wallFilter}));
-                }
+//                // statistic and ck source don't need wall filter
+//                if (!STATISTIC.equals(name) && !DataType.CLICKHOUSE.getFeature().equalsIgnoreCase(type)) {
+//                    druidDataSource.setProxyFilters(Arrays.asList(new Filter[]{wallFilter}));
+//                }
                 druidDataSource.setFilters(filters);
                 druidDataSource.init();
             } catch (Exception e) {
